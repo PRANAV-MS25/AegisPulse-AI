@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AegisPulse-AI | Tactical Radar Command</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: #03080c; color: #00ff66; font-family: 'Courier New', monospace; display: flex; height: 100vh; margin: 0; padding: 20px; gap: 20px; }
+    #radar-container { flex: 1; display: flex; justify-content: center; align-items: center; background: #010406; border: 1px solid #00ff6633; border-radius: 8px; position: relative; }
+    canvas { background: #020b05; border: 2px solid #00ff66; border-radius: 50%; box-shadow: 0 0 30px #00ff6622; }
+    #panel { width: 420px; border: 1px solid #00ff6644; padding: 20px; background: #020f08; display: flex; flex-direction: column; gap: 15px; border-radius: 8px; }
+    .status-box { border: 1px solid #00ff6633; padding: 10px; background: #010804; }
+    .red { color: #ff3344; border-color: #ff3344 !important; } 
+    .yellow { color: #ffcc00; } 
+    .green { color: #00ff66; }
+    #alert-box { min-height: 120px; border-left: 3px solid #00ff66; padding-left: 10px; }
+  </style>
+</head>
+<body>
+
+  <div id="radar-container">
+    <canvas id="radarCanvas" width="650" height="650"></canvas>
+  </div>
+
+  <div id="panel">
+    <h2>AEGIS-PULSE AI</h2>
+    <div class="status-box">
+      <div>SYSTEM: <span id="sys-status" class="green">ONLINE</span></div>
+      <div>STATION: <span id="station-name">VOBL Ground Radar</span></div>
+      <div>ACTIVE BLIPS: <span id="blip-count">0</span></div>
+    </div>
+
+    <h3>TACTICAL THREAT EVALUATION</h3>
+    <div id="alert-box" class="status-box">
+      <div id="target-details">Awaiting target sweep alignment...</div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('radarCanvas');
+    const ctx = canvas.getContext('2d');
+    const cx = 325, cy = 325, radius = 300;
+    const maxRangeKm = 300;
+    
+    let sweepAngle = 0;
+    let liveTargets = [];
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${wsProtocol}//${window.location.host}/ws/radar`);
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      liveTargets = data.targets;
+      document.getElementById('station-name').innerText = data.station;
+      document.getElementById('blip-count').innerText = data.total_targets;
+    };
+
+    function drawBase() {
+      ctx.fillStyle = 'rgba(2, 11, 5, 0.08)';
+      ctx.fillRect(0, 0, 650, 650);
+
+      ctx.strokeStyle = '#00ff6622';
+      ctx.lineWidth = 1;
+      for (let r = 75; r <= radius; r += 75) {
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy);
+      ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius);
+      ctx.stroke();
+    }
+
+    function renderLoop() {
+      drawBase();
+
+      sweepAngle += 0.015;
+      if (sweepAngle >= Math.PI * 2) sweepAngle = 0;
+
+      const sweepX = cx + radius * Math.cos(sweepAngle);
+      const sweepY = cy + radius * Math.sin(sweepAngle);
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy); ctx.lineTo(sweepX, sweepY);
+      ctx.strokeStyle = '#00ff66'; ctx.lineWidth = 2; ctx.stroke();
+
+      liveTargets.forEach(target => {
+        const targetRad = (target.bearing_deg - 90) * (Math.PI / 180);
+        const targetR = (target.range_km / maxRangeKm) * radius;
+        const tx = cx + targetR * Math.cos(targetRad);
+        const ty = cy + targetR * Math.sin(targetRad);
+
+        ctx.beginPath();
+        ctx.arc(tx, ty, 4, 0, Math.PI * 2);
+        
+        if (target.threat === 'RED') ctx.fillStyle = '#ff3344';
+        else if (target.threat === 'YELLOW') ctx.fillStyle = '#ffcc00';
+        else ctx.fillStyle = '#00ff66';
+
+        ctx.fill();
+
+        const targetNormalizedAngle = (targetRad + Math.PI * 2) % (Math.PI * 2);
+        if (Math.abs(sweepAngle - targetNormalizedAngle) < 0.03) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.arc(tx, ty, 8, 0, Math.PI * 2); ctx.stroke();
+
+          document.getElementById('alert-box').className = `status-box ${target.threat.toLowerCase()}`;
+          document.getElementById('target-details').innerHTML = `
+            <b>CALLSIGN:</b> ${target.callsign} (${target.icao})<br>
+            <b>THREAT LEVEL:</b> ${target.threat}<br>
+            <b>RANGE / BEARING:</b> ${target.range_km} km / ${target.bearing_deg}°<br>
+            <b>ALTITUDE:</b> ${target.alt_m ? target.alt_m + ' m' : 'N/A'}<br>
+            <b>REASON:</b> ${target.reason}
+          `;
+        }
+      });
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    renderLoop();
+  </script>
+</body>
+</html>
