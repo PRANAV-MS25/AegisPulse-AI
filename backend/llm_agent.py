@@ -1,4 +1,31 @@
 import json
+import os
+import google.generativeai as genai
+
+# Configure client (requires GEMINI_API_KEY in environment or .env)
+genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
+
+def generate_live_ai_brief(target_data: dict) -> str:
+    """Generates dynamic tactical response directives using LLM API."""
+    if not os.getenv("GEMINI_API_KEY"):
+        return f"CRITICAL: Target {target_data.get('callsign')} exhibiting abnormal vector!"
+
+    prompt = f"""
+    You are AegisPulse Command AI. Evaluate the following military/radar telemetry:
+    - Callsign: {target_data.get('callsign')}
+    - Distance: {target_data.get('range_km')} km at Bearing {target_data.get('bearing_deg')}°
+    - Squawk Code: {target_data.get('squawk')}
+    - Altitude: {target_data.get('alt_m')} m
+    - Velocity: {target_data.get('speed_m_s')} m/s
+
+    Output a 2-sentence tactical advisory directive for air defence control.
+    """
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"AI Evaluation Pipeline Warning: {str(e)}"
 
 def synthesize_threat_advisory(target_data: dict) -> dict:
     """
